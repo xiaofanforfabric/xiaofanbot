@@ -18,7 +18,7 @@ public class AIChatService {
 
     // 使用官方示例中的模型名称
     private static final String MODEL = "@cf/meta/llama-3-8b-instruct";
-    private static final String API_KEY = "hGvGZ0Zg3IlyTPns0QJyAN_COuQ60MzZnju7Wf3V";
+    private static final String API_KEY = "***********************";
     private static final String API_URL = "https://api.cloudflare.com/client/v4/accounts/ccbfea02ef81bc6dbd5297209591b446/ai/run/" + MODEL;
 
     // Minecraft专属提示词（只保留AI层面的限制）
