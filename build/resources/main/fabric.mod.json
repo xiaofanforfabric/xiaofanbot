@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "autosave",
+  "version": "1.0-SNAPSHOT",
+  "name": "autosave",
+  "description": "a",
+  "authors": [],
+  "contact": {},
+  "license": "GPL-3.0",
+  "icon": "assets/autosave/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-datagen": [
+      "com.xiaofan.world.autosave.client.AutosaveDataGenerator"
+    ],
+    "client": [
+      "com.xiaofan.world.autosave.client.AutosaveClient"
+    ],
+    "main": [
+      "com.xiaofan.world.autosave.Autosave"
+    ]
+  },
+  "mixins": [
+    "autosave.mixins.json",
+    {
+      "config": "autosave.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.17.2",
+    "fabric-language-kotlin": ">=1.13.5+kotlin.2.2.10",
+    "fabric": "*",
+    "minecraft": "1.21.5"
+  }
+}

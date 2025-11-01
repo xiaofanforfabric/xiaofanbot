@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel target="21" />
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_STRING" value="-AoutRefMapFile=G:\work\autosave\build\classes\java\client\client-autosave-refmap.json -AdefaultObfuscationEnv=named:intermediary -Aquiet=true -AoutMapFileNamedIntermediary=G:\work\autosave\build\loom-cache\mixin-map-net.fabricmc.yarn.1_21_5.1.21.5+build.1-v2.client.tiny -AinMapFileNamedIntermediary=C:\Users\Administrator\.gradle\caches\fabric-loom\1.21.5\net.fabricmc.yarn.1_21_5.1.21.5+build.1-v2\mappings.tiny" />
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="autosave.main" options="-AoutRefMapFile=G:\work\autosave\build\classes\java\main\autosave-refmap.json -AdefaultObfuscationEnv=named:intermediary -Aquiet=true -AoutMapFileNamedIntermediary=G:\work\autosave\build\loom-cache\mixin-map-net.fabricmc.yarn.1_21_5.1.21.5+build.1-v2.main.tiny -AinMapFileNamedIntermediary=C:\Users\Administrator\.gradle\caches\fabric-loom\1.21.5\net.fabricmc.yarn.1_21_5.1.21.5+build.1-v2\mappings.tiny" />
+      <module name="autosave.test" options="-AoutRefMapFile=G:\work\autosave\build\classes\java\test\test-autosave-refmap.json -AdefaultObfuscationEnv=named:intermediary -Aquiet=true -AoutMapFileNamedIntermediary=G:\work\autosave\build\loom-cache\mixin-map-net.fabricmc.yarn.1_21_5.1.21.5+build.1-v2.test.tiny -AinMapFileNamedIntermediary=C:\Users\Administrator\.gradle\caches\fabric-loom\1.21.5\net.fabricmc.yarn.1_21_5.1.21.5+build.1-v2\mappings.tiny" />
+    </option>
+  </component>
+</project>
