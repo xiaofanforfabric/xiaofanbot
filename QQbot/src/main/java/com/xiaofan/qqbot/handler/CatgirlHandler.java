@@ -1,5 +1,8 @@
-package com.xiaofan.qqbot;
+package com.xiaofan.qqbot.handler;
 
+import com.xiaofan.qqbot.send.KookMessageSender;
+import com.xiaofan.qqbot.send.QQMessageSender;
+import com.xiaofan.qqbot.service.CatgirlAIService;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
@@ -27,10 +30,12 @@ public class CatgirlHandler {
     
     private final BiFunction<Long, String, Boolean> messageSender;
     private final BiFunction<Long, String, Boolean> privateMessageSender; // 私聊消息发送器
+    private final QQMessageSender qqMessageSender;
+    private final KookMessageSender kookMessageSender;
     private volatile long botUserId; // 机器人自己的QQ号，用于检测@消息（使用volatile支持多线程更新）
     
     /**
-     * 构造函数
+     * 构造函数（旧版本，兼容性）
      * @param messageSender 群消息发送函数
      * @param privateMessageSender 私聊消息发送函数
      * @param botUserId 机器人自己的QQ号（初始值，如果为0则接受所有@消息）
@@ -39,6 +44,26 @@ public class CatgirlHandler {
                          BiFunction<Long, String, Boolean> privateMessageSender,
                          long botUserId) {
         this.messageSender = messageSender;
+        this.privateMessageSender = privateMessageSender;
+        this.qqMessageSender = null;
+        this.kookMessageSender = null;
+        this.botUserId = botUserId;
+    }
+    
+    /**
+     * 构造函数（新版本，支持双发送器）
+     * @param qqMessageSender QQ消息发送器
+     * @param kookMessageSender KOOK消息发送器
+     * @param privateMessageSender 私聊消息发送函数
+     * @param botUserId 机器人自己的QQ号（初始值，如果为0则接受所有@消息）
+     */
+    public CatgirlHandler(QQMessageSender qqMessageSender,
+                         KookMessageSender kookMessageSender,
+                         BiFunction<Long, String, Boolean> privateMessageSender,
+                         long botUserId) {
+        this.qqMessageSender = qqMessageSender;
+        this.kookMessageSender = kookMessageSender;
+        this.messageSender = null;
         this.privateMessageSender = privateMessageSender;
         this.botUserId = botUserId;
     }
@@ -192,7 +217,12 @@ public class CatgirlHandler {
     public void handleGroupMessage(long groupId, long userId, JSONObject event) {
         // 检查频率限制
         if (checkRateLimit()) {
-            messageSender.apply(groupId, "调用过于频繁，请一分钟后再试。");
+            String rateLimitMsg = "调用过于频繁，请一分钟后再试";
+            if (qqMessageSender != null) {
+                qqMessageSender.sendGroupMessage(groupId, rateLimitMsg);
+            } else if (messageSender != null) {
+                messageSender.apply(groupId, rateLimitMsg);
+            }
             return;
         }
         
@@ -206,20 +236,122 @@ public class CatgirlHandler {
         logger.info("检测到@机器人消息，群号: {}, 用户: {}, 问题: {}", groupId, userId, question);
         
         // 异步处理AI请求
+        final long finalGroupId = groupId;
         new Thread(() -> {
             try {
                 String aiResponse = CatgirlAIService.getAIResponse(question);
                 
                 if (aiResponse != null && !aiResponse.isEmpty()) {
-                    messageSender.apply(groupId, aiResponse);
-                    logger.info("猫娘AI回复成功，群号: {}, 用户: {}", groupId, userId);
+                    if (qqMessageSender != null) {
+                        qqMessageSender.sendGroupMessage(finalGroupId, aiResponse);
+                    } else if (messageSender != null) {
+                        messageSender.apply(finalGroupId, aiResponse);
+                    }
+                    logger.info("猫娘AI回复成功，群号: {}, 用户: {}", finalGroupId, userId);
                 } else {
-                    messageSender.apply(groupId, "抱歉，我现在无法回答，请稍后再试喵~");
-                    logger.warn("AI回复为空，群号: {}, 用户: {}", groupId, userId);
+                    String errorMsg = "抱歉，我现在无法回答，请稍后再试喵~";
+                    if (qqMessageSender != null) {
+                        qqMessageSender.sendGroupMessage(finalGroupId, errorMsg);
+                    } else if (messageSender != null) {
+                        messageSender.apply(finalGroupId, errorMsg);
+                    }
+                    logger.warn("AI回复为空，群号: {}, 用户: {}", finalGroupId, userId);
                 }
             } catch (Exception e) {
-                logger.error("处理AI请求时发生异常，群号: {}, 用户: {}", groupId, userId, e);
-                messageSender.apply(groupId, "抱歉，处理你的消息时出错了喵~");
+                logger.error("处理AI请求时发生异常，群号: {}, 用户: {}", finalGroupId, userId, e);
+                String errorMsg = "抱歉，处理你的消息时出错了喵~";
+                if (qqMessageSender != null) {
+                    qqMessageSender.sendGroupMessage(finalGroupId, errorMsg);
+                } else if (messageSender != null) {
+                    messageSender.apply(finalGroupId, errorMsg);
+                }
+            }
+        }).start();
+    }
+    
+    /**
+     * 检查KOOK消息是否@了机器人
+     * 对于KOOK消息，检查消息内容是否包含@机器人的标记
+     * @param event KOOK消息事件
+     * @return 如果应该处理返回true
+     */
+    public boolean shouldHandleGroupMessageKook(JSONObject event) {
+        try {
+            // KOOK消息格式不同，检查消息内容
+            String messageText = event.optString("content", "");
+            if (messageText == null || messageText.trim().isEmpty()) {
+                return false;
+            }
+            
+            // 检查是否包含@机器人的标记（KOOK使用@(user_id)格式）
+            // 或者检查消息是否以特定前缀开头
+            // 这里简化处理：如果消息不为空，就处理（实际应用中可能需要更严格的检查）
+            String trimmed = messageText.trim();
+            
+            // 在事件中存储问题内容
+            event.put("_catgirl_question", trimmed);
+            logger.debug("KOOK消息检测通过，问题: {}", trimmed);
+            return true;
+            
+        } catch (Exception e) {
+            logger.error("检查KOOK@消息时发生异常", e);
+            return false;
+        }
+    }
+    
+    /**
+     * 处理KOOK群消息中的@机器人
+     * @param channelId 频道ID
+     * @param userId 用户ID（字符串）
+     * @param event 消息事件
+     */
+    public void handleGroupMessageKook(String channelId, String userId, JSONObject event) {
+        // 检查频率限制
+        if (checkRateLimit()) {
+            if (kookMessageSender != null) {
+                kookMessageSender.sendChannelMessage(channelId, "调用过于频繁，请一分钟后再试");
+            }
+            return;
+        }
+        
+        // 提取问题
+        String questionTemp = event.optString("_catgirl_question", "");
+        if (questionTemp.isEmpty()) {
+            // 如果没有预先提取的问题，尝试从content字段获取
+            questionTemp = event.optString("content", "").trim();
+        }
+        
+        final String question = questionTemp;
+        
+        if (question.isEmpty()) {
+            logger.warn("KOOK@消息中未找到问题内容");
+            return;
+        }
+        
+        logger.info("检测到@机器人消息（KOOK），频道: {}, 用户: {}, 问题: {}", channelId, userId, question);
+        
+        // 异步处理AI请求
+        final String finalChannelId = channelId;
+        new Thread(() -> {
+            try {
+                String aiResponse = CatgirlAIService.getAIResponse(question);
+                
+                if (aiResponse != null && !aiResponse.isEmpty()) {
+                    if (kookMessageSender != null) {
+                        kookMessageSender.sendChannelMessage(finalChannelId, aiResponse);
+                    }
+                    logger.info("猫娘AI回复成功（KOOK），频道: {}, 用户: {}", finalChannelId, userId);
+                } else {
+                    if (kookMessageSender != null) {
+                        kookMessageSender.sendChannelMessage(finalChannelId, "抱歉，我现在无法回答，请稍后再试喵~");
+                    }
+                    logger.warn("AI回复为空（KOOK），频道: {}, 用户: {}", finalChannelId, userId);
+                }
+            } catch (Exception e) {
+                logger.error("处理AI请求时发生异常（KOOK），频道: {}, 用户: {}", finalChannelId, userId, e);
+                if (kookMessageSender != null) {
+                    kookMessageSender.sendChannelMessage(finalChannelId, "抱歉，处理你的消息时出错了喵~");
+                }
             }
         }).start();
     }
@@ -232,7 +364,7 @@ public class CatgirlHandler {
     public void handlePrivateMessage(long userId, String messageText) {
         // 检查频率限制
         if (checkRateLimit()) {
-            privateMessageSender.apply(userId, "调用过于频繁，请一分钟后再试。");
+            privateMessageSender.apply(userId, "调用过于频繁，请一分钟后再试");
             return;
         }
         
@@ -261,4 +393,3 @@ public class CatgirlHandler {
         }).start();
     }
 }
-

@@ -1,0 +1,23 @@
+# KOOK Bot 配置示例文件
+# 复制此文件为 config.properties 并填入实际值
+
+# KOOK Bot Token（从 KOOK 开发者平台获取）
+# 格式：Bot {token}，但这里只填 token 部分
+kook.bot.token=YOUR_BOT_TOKEN_HERE
+
+# KOOK API 地址（通常不需要修改）
+kook.api.url=https://www.kookapp.cn
+
+# KOOK WebSocket Gateway 地址
+# 注意：需要先调用 /api/v3/gateway/index 获取 WebSocket 地址
+# 如果为空，程序会自动获取
+kook.ws.url=
+
+# 数据库配置（如果需要复用数据库功能）
+db.url=jdbc:mysql://localhost:3306/qddata?useSSL=false&serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&allowPublicKeyRetrieval=true
+db.user=root
+db.password=password
+
+# 日志级别
+logging.level=INFO
+

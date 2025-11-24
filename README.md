@@ -62,6 +62,22 @@ autosave/
 - **积分查询**：发送 `查询积分` 查看当前积分
 - **数据库**：使用MySQL存储用户签到数据（`qddata.userdata`表）
 
+#### 游戏ID绑定
+- **绑定**：发送 `绑定` 绑定游戏ID到QQ号
+- **流程**：
+  1. 用户发送"绑定"触发绑定流程
+  2. 系统生成6位验证码
+  3. 用户在Minecraft服务器内发送 `/c 绑定（验证码）` 完成绑定
+  4. 验证码2分钟有效，超时需重新绑定
+- **API**：端口2001提供 `/pass_code` API接收验证码
+- **限制**：同时只能有一个用户进行绑定
+
+#### 消息屏蔽
+- **屏蔽**：发送 `/mute` 屏蔽自己的游戏消息
+- **功能**：将用户的游戏ID添加到屏蔽列表，服务器消息同步时自动过滤该玩家的消息
+- **要求**：必须先完成游戏ID绑定
+- **文件**：`mute.txt`（位于JAR包同目录）
+
 #### 投稿系统
 - **投稿**：发送 `投稿 （内容）` 投稿内容到数据库
 - **Tip查询**：发送 `tip` 随机获取一条投稿内容
@@ -120,7 +136,8 @@ CREATE TABLE userdata (
     username VARCHAR(255) NOT NULL,
     qd INT NOT NULL DEFAULT 1,
     qd_last_time DATETIME,
-    reg_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    reg_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    game_id VARCHAR(255) DEFAULT NULL
 );
 
 -- 创建投稿数据表
@@ -218,6 +235,8 @@ java -jar build/libs/qqbot-1.0-SNAPSHOT.jar
 | `人数查询` | 查询服务器在线人数 | `人数查询` |
 | `签到` | 每日签到 | `签到` |
 | `查询积分` | 查询当前积分 | `查询积分` |
+| `绑定` | 绑定游戏ID到QQ号 | `绑定` |
+| `/mute` | 屏蔽自己的游戏消息 | `/mute` |
 | `投稿 （内容）` | 投稿内容 | `投稿 这是一个小贴士` |
 | `tip` | 随机获取投稿 | `tip` |
 | `@写了亿小时bug （问题）` | AI对话（群聊） | `@写了亿小时bug 你好吗？` |
@@ -231,6 +250,7 @@ java -jar build/libs/qqbot-1.0-SNAPSHOT.jar
 | 端口 | 模块 | 功能 |
 |------|------|------|
 | 2000 | Fabric客户端 | 服务器信息API |
+| 2001 | QQbot模块 | 绑定验证码API |
 | 3000 | NapCat | HTTP API |
 | 3001 | NapCat | WebSocket |
 | 8083 | Fabric客户端 | 客户端控制 |

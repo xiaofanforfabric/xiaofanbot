@@ -1,5 +1,6 @@
-package com.xiaofan.qqbot;
+package com.xiaofan.qqbot.manager;
 
+import com.xiaofan.qqbot.config.ConfigManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -118,7 +119,7 @@ public class DatabaseManager {
             
             stmt.setLong(1, qqId);
             stmt.setString(2, String.valueOf(qqId)); // 使用QQ号作为默认用户名
-            stmt.setInt(3, 1); // 初始积分为1
+            stmt.setInt(3, 1); // 初始积分1
             stmt.setTimestamp(4, Timestamp.valueOf(now));
             stmt.setTimestamp(5, Timestamp.valueOf(now));
             
@@ -233,6 +234,151 @@ public class DatabaseManager {
     }
     
     /**
+     * 删除指定QQ号的所有投稿
+     * @param qqId QQ号（字符串格式，因为reg_user字段是字符串）
+     * @return 删除的记录数，失败返回-1
+     */
+    public int deleteTipsByQqId(String qqId) {
+        String sql = "DELETE FROM tipdata WHERE reg_user = ?";
+        
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setString(1, qqId);
+            
+            int rowsAffected = stmt.executeUpdate();
+            
+            if (rowsAffected > 0) {
+                logger.info("删除投稿成功，QQ号: {}, 删除记录数: {}", qqId, rowsAffected);
+            } else {
+                logger.info("未找到QQ号 {} 的投稿记录", qqId);
+            }
+            
+            return rowsAffected;
+        } catch (SQLException e) {
+            logger.error("删除投稿时发生错误，QQ号: {}", qqId, e);
+            return -1;
+        }
+    }
+    
+    /**
+     * 删除多个QQ号的所有投稿
+     * @param qqIds QQ号集合（字符串格式）
+     * @return 总共删除的记录数，失败返回-1
+     */
+    public int deleteTipsByQqIds(java.util.Set<Long> qqIds) {
+        if (qqIds == null || qqIds.isEmpty()) {
+            logger.info("QQ号集合为空，无需删除");
+            return 0;
+        }
+        
+        int totalDeleted = 0;
+        
+        for (Long qqId : qqIds) {
+            String qqIdStr = String.valueOf(qqId);
+            int deleted = deleteTipsByQqId(qqIdStr);
+            if (deleted > 0) {
+                totalDeleted += deleted;
+            } else if (deleted < 0) {
+                // 如果出现错误，返回-1表示失败
+                return -1;
+            }
+        }
+        
+        logger.info("批量删除投稿完成，总共删除 {} 条记录", totalDeleted);
+        return totalDeleted;
+    }
+    
+    /**
+     * 检查用户的game_id是否为NULL
+     * @param qqId QQ号
+     * @return 如果game_id为NULL返回true，否则返回false。如果用户不存在返回null
+     */
+    public Boolean isGameIdNull(long qqId) {
+        String sql = "SELECT game_id FROM " + TABLE_NAME + " WHERE qq_id = ?";
+        
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setLong(1, qqId);
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    String gameId = rs.getString("game_id");
+                    return gameId == null || gameId.trim().isEmpty();
+                } else {
+                    // 用户不存在
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("检查game_id时发生错误，QQ号: {}", qqId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 获取用户的game_id
+     * @param qqId QQ号
+     * @return 游戏ID，如果为NULL或用户不存在返回null
+     */
+    public String getGameId(long qqId) {
+        String sql = "SELECT game_id FROM " + TABLE_NAME + " WHERE qq_id = ?";
+        
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setLong(1, qqId);
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    String gameId = rs.getString("game_id");
+                    if (gameId != null && !gameId.trim().isEmpty()) {
+                        return gameId.trim();
+                    }
+                    return null;
+                } else {
+                    // 用户不存在
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("获取game_id时发生错误，QQ号: {}", qqId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 更新用户的game_id
+     * @param qqId QQ号
+     * @param gameId 游戏ID
+     * @return 更新成功返回true，否则返回false
+     */
+    public boolean updateGameId(long qqId, String gameId) {
+        String sql = "UPDATE " + TABLE_NAME + " SET game_id = ? WHERE qq_id = ?";
+        
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setString(1, gameId);
+            stmt.setLong(2, qqId);
+            
+            int rowsAffected = stmt.executeUpdate();
+            
+            if (rowsAffected > 0) {
+                logger.info("game_id更新成功，QQ号: {}, game_id: {}", qqId, gameId);
+                return true;
+            } else {
+                logger.warn("game_id更新失败，QQ号: {}", qqId);
+                return false;
+            }
+        } catch (SQLException e) {
+            logger.error("更新game_id时发生错误，QQ号: {}", qqId, e);
+            return false;
+        }
+    }
+    
+    /**
      * 用户签到信息数据类
      */
     public static class UserCheckInInfo {
@@ -252,4 +398,3 @@ public class DatabaseManager {
         public LocalDateTime regTime;
     }
 }
-

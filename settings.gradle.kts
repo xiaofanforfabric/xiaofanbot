@@ -6,3 +6,7 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+include("QQbot")
+include("SimpfunPassAPI")
+include("KOOKBot")

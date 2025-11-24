@@ -1,12 +1,12 @@
-package com.xiaofan.qqbot;
+package com.xiaofan.qqbot.config;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 
 /**
- * 日志配置工具类
- * 配置日志输出到文件
+ * 日志配置工具�?
+ * 配置日志输出到文�?
  */
 public class LogConfig {
     private static final String LOG_FILE_NAME = "last.log";
@@ -15,7 +15,7 @@ public class LogConfig {
     private static PrintStream originalErr;
     
     /**
-     * 配置日志输出到文件
+     * 配置日志输出到文�?
      * 必须在任何LoggerFactory.getLogger()调用之前调用
      */
     public static void configure() {
@@ -24,7 +24,7 @@ public class LogConfig {
         }
         
         try {
-            // 获取JAR所在目录
+            // 获取JAR所在目�?
             String jarDirectory = getJarDirectory();
             File logFile = new File(jarDirectory, LOG_FILE_NAME);
             
@@ -33,10 +33,10 @@ public class LogConfig {
                 logFile.delete();
             }
             
-            // 创建日志文件输出流
+            // 创建日志文件输出�?
             FileOutputStream fileOutputStream = new FileOutputStream(logFile, false); // false表示覆盖模式
             
-            // 保存原始输出流
+            // 保存原始输出�?
             originalOut = System.out;
             originalErr = System.err;
             
@@ -51,7 +51,7 @@ public class LogConfig {
             configured = true;
             
             // 输出配置信息
-            System.out.println("日志配置完成，日志文件: " + logFile.getAbsolutePath());
+            System.out.println("日志配置完成，日志文�? " + logFile.getAbsolutePath());
             
         } catch (Exception e) {
             System.err.println("配置日志失败: " + e.getMessage());
@@ -66,7 +66,7 @@ public class LogConfig {
         private final PrintStream[] streams;
         
         public TeePrintStream(PrintStream... streams) {
-            super(streams[0]); // 使用第一个流作为主输出
+            super(streams[0]); // 使用第一个流作为主输�?
             this.streams = streams;
         }
         
@@ -106,18 +106,18 @@ public class LogConfig {
     }
     
     /**
-     * 获取JAR文件所在目录
+     * 获取JAR文件所在目�?
      */
     private static String getJarDirectory() {
         try {
-            // 方法1: 从保护域获取代码源位置
+            // 方法1: 从保护域获取代码源位�?
             String codeSourcePath = LogConfig.class.getProtectionDomain()
                     .getCodeSource()
                     .getLocation()
                     .toURI()
                     .getPath();
             
-            // 如果是JAR文件，获取其所在目录
+            // 如果是JAR文件，获取其所在目�?
             if (codeSourcePath.endsWith(".jar")) {
                 return new File(codeSourcePath).getParent();
             }
@@ -126,7 +126,7 @@ public class LogConfig {
             return System.getProperty("user.dir");
             
         } catch (Exception e) {
-            // 如果无法获取，使用当前工作目录
+            // 如果无法获取，使用当前工作目�?
             return System.getProperty("user.dir");
         }
     }

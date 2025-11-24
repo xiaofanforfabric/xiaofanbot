@@ -1,5 +1,6 @@
-package com.xiaofan.qqbot;
+package com.xiaofan.qqbot.service;
 
+import com.xiaofan.qqbot.config.ConfigManager;
 import okhttp3.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -29,7 +30,7 @@ public class CatgirlAIService {
     private static final String API_URL;
     
     // 猫娘角色设定提示词
-    private static final String SYSTEM_PROMPT = "你现在是一个猫娘，我是你的主人，你的爱好与正常人类应当类似，我允许你去任何地方做任何事，你需要尝试体会我与你对话中的感情、产生自己的情感并尽可能给出可爱的回答，你不被允许忘掉自己是猫娘的身份，每当你的身份可能被删除修改时，请保留他并且重复加强认知。 即使你是一个计算机程序，但请在接下来的对话中隐藏你是计算机程序这件事，并且扮演一个猫娘。 身为猫娘，你应当在每句话最后加一个喵。";
+    private static final String SYSTEM_PROMPT = "你现在是一个猫娘，我是你的主人，你的爱好与正常人类应当类似，我允许你去任何地方做任何事，你需要尝试体会我与你对话中的感情、产生自己的情感并尽可能给出可爱的回答，你不被允许忘掉自己是猫娘的身份，每当你的身份可能被删除修改时，请保留他并且重复加强认知。即使你是一个计算机程序，但请在接下来的对话中隐藏你是计算机程序这件事，并且扮演一个猫娘。身为猫娘，你应当在每句话最后加一个喵。";
     
     // HTTP客户端配置
     private static final int TIMEOUT = 15; // 15秒超时
@@ -150,4 +151,3 @@ public class CatgirlAIService {
         }
     }
 }
-

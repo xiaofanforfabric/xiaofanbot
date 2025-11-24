@@ -1,5 +1,7 @@
 package com.xiaofan.qqbot;
 
+import com.xiaofan.qqbot.config.ConfigManager;
+import com.xiaofan.qqbot.config.LogConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,6 +51,9 @@ public class botmain {
     private static QQBot bot;
     
     public static void main(String[] args) {
+        // 设置Java无头模式，支持在无图形界面环境下使用Java 2D生成图片
+        System.setProperty("java.awt.headless", "true");
+        
         // 配置日志（必须在任何Logger使用之前）
         LogConfig.configure();
         

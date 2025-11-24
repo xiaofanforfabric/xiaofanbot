@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 定义日志文件路径（与jar同目录） -->
+    <!-- 如果LOG_DIR系统属性未设置，使用当前目录 -->
+    <property name="LOG_DIR" value="${LOG_DIR:-./}"/>
+    <property name="LOG_FILE" value="${LOG_DIR}kookbot.log"/>
+    
+    <!-- 控制台输出 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+    
+    <!-- 文件输出（覆盖模式） -->
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${LOG_FILE}</file>
+        <append>false</append> <!-- false表示覆盖模式，每次启动覆盖旧文件 -->
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+    
+    <!-- 根日志级别 -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+    
+    <!-- 特定包的日志级别 -->
+    <logger name="com.xiaofan.kookbot" level="INFO"/>
+    <logger name="okhttp3" level="WARN"/>
+</configuration>
+
