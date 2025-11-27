@@ -59,16 +59,22 @@ dependencies {
     // HTTP客户端和JSON处理
     implementation("org.apache.httpcomponents:httpclient:4.5.14")
     implementation("org.json:json:20231013")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okio:okio:3.6.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
 
     // 包含到模组中
     include("org.apache.httpcomponents:httpclient:4.5.14")
     include("org.json:json:20231013")
+    include("com.squareup.okhttp3:okhttp:4.12.0")
+    include("com.squareup.okio:okio:3.6.0")
 }
 
-tasks.processResources {
+tasks.withType<ProcessResources>().configureEach {
     inputs.property("version", project.version)
     inputs.property("minecraft_version", project.property("minecraft_version"))
     inputs.property("loader_version", project.property("loader_version"))
+    inputs.property("kotlin_loader_version", project.property("kotlin_loader_version"))
     filteringCharset = "UTF-8"
 
     filesMatching("fabric.mod.json") {

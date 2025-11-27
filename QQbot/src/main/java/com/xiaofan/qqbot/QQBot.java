@@ -1,11 +1,27 @@
 package com.xiaofan.qqbot;
 
+import com.xiaofan.qqbot.config.ConfigManager;
+import com.xiaofan.qqbot.config.LogConfig;
+import com.xiaofan.qqbot.game.MinesweeperGame;
+import com.xiaofan.qqbot.game.MinesweeperRenderer;
+import com.xiaofan.qqbot.handler.*;
+import com.xiaofan.qqbot.manager.*;
+import com.xiaofan.qqbot.send.KookMessageSender;
+import com.xiaofan.qqbot.send.QQMessageSender;
+import com.xiaofan.qqbot.service.CatgirlAIService;
+import com.xiaofan.qqbot.service.ServerMessageMonitor;
+import com.xiaofan.qqbot.websocket.BindingAPIServer;
+import com.xiaofan.qqbot.websocket.KookMessageForwardServer;
+import com.xiaofan.qqbot.websocket.KookReplyServer;
+import com.xiaofan.qqbot.websocket.SSTVWebSocketServer;
 import okhttp3.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -18,11 +34,11 @@ public class QQBot {
     private static final Logger logger = LoggerFactory.getLogger(QQBot.class);
     
     // 配置常量（从ConfigManager读取）
-    public static final String NAPCAT_API_URL = ConfigManager.getNapCatApiUrl();
-    public static final String NAPCAT_WS_URL = ConfigManager.getNapCatWsUrl();
-    public static final String NAPCAT_TOKEN = ConfigManager.getNapCatToken();
-    public static final String TRIGGER_MESSAGE = ConfigManager.getTriggerMessage();
-    public static final String REPLY_MESSAGE = ConfigManager.getReplyMessage();
+    public static final String NAPCAT_API_URL = com.xiaofan.qqbot.config.ConfigManager.getNapCatApiUrl();
+    public static final String NAPCAT_WS_URL = com.xiaofan.qqbot.config.ConfigManager.getNapCatWsUrl();
+    public static final String NAPCAT_TOKEN = com.xiaofan.qqbot.config.ConfigManager.getNapCatToken();
+    public static final String TRIGGER_MESSAGE = com.xiaofan.qqbot.config.ConfigManager.getTriggerMessage();
+    public static final String REPLY_MESSAGE = com.xiaofan.qqbot.config.ConfigManager.getReplyMessage();
     public static final int MAX_PROCESSED_MESSAGE_IDS = 1000;
     public static final long RECONNECT_DELAY_MS = 5000;
     
@@ -39,6 +55,18 @@ public class QQBot {
     private final ServerCommandHandler serverCommandHandler;
     private final ServerMessageMonitor serverMessageMonitor;
     private final BanListManager banListManager;
+    private final MuteListManager muteListManager;
+    private final BindingHandler bindingHandler;
+    private final BindingAPIServer bindingAPIServer;
+    private final MuteHandler muteHandler;
+    private final MinesweeperHandler minesweeperHandler;
+    private final BanHandler banHandler;
+    private final SSTVWebSocketServer sstvWebSocketServer;
+    private final SSTVHandler sstvHandler;
+    private final KookMessageForwardServer kookMessageForwardServer;
+    private final KookReplyServer kookReplyServer; // KOOK回复消息WebSocket服务器
+    private final SilentModeManager silentModeManager;
+    private final SilentModeHandler silentModeHandler;
     private NapCatWebSocketClient webSocketClient;
     // botUserId在CatgirlHandler中管理，不需要在这里存储
     
@@ -49,37 +77,88 @@ public class QQBot {
     public QQBot(String apiUrl, String wsUrl, String token) {
         this.messageSender = new MessageSender(apiUrl, token);
         this.banListManager = new BanListManager();
-        this.playerCountQueryHandler = new PlayerCountQueryHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
-        );
-        this.checkInHandler = new CheckInHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
-        );
-        this.pointsQueryHandler = new PointsQueryHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
-        );
-        this.tipSubmissionHandler = new TipSubmissionHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
-        );
-        this.tipHandler = new TipHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
-        );
-        this.helpHandler = new HelpHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
-        );
+        // 先初始化KOOK回复服务器（需要在创建Handler之前）
+        this.kookReplyServer = new KookReplyServer();
+        this.kookReplyServer.start();
+        
+        // 初始化消息发送器
+        QQMessageSender qqMessageSender = new QQMessageSender(apiUrl, token);
+        KookMessageSender kookMessageSender = new KookMessageSender(kookReplyServer);
+        
+        this.playerCountQueryHandler = new PlayerCountQueryHandler(qqMessageSender, kookMessageSender);
+        this.checkInHandler = new CheckInHandler(qqMessageSender, kookMessageSender);
+        this.pointsQueryHandler = new PointsQueryHandler(qqMessageSender, kookMessageSender);
+        this.tipSubmissionHandler = new TipSubmissionHandler(qqMessageSender, kookMessageSender);
+        this.tipHandler = new TipHandler(qqMessageSender, kookMessageSender);
+        this.helpHandler = new HelpHandler(qqMessageSender, kookMessageSender);
         // 初始化猫娘AI处理器（需要先获取botUserId，暂时设为0，会在连接后更新）
         this.catgirlHandler = new CatgirlHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message),
+            qqMessageSender,
+            kookMessageSender,
             (userId, message) -> messageSender.sendPrivateMessage(userId, message),
             0 // botUserId将在获取后更新
         );
         this.serverCommandHandler = new ServerCommandHandler(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
+            qqMessageSender,
+            kookMessageSender
         );
+        this.muteListManager = new MuteListManager();
+        this.muteHandler = new MuteHandler(
+            qqMessageSender,
+            kookMessageSender,
+            muteListManager
+        );
+        // 初始化静默模式管理器（需要在serverMessageMonitor之前初始化）
+        this.silentModeManager = new SilentModeManager();
         this.serverMessageMonitor = new ServerMessageMonitor(
-            (groupId, message) -> messageSender.sendGroupMessage(groupId, message)
+            (groupId, message) -> messageSender.sendGroupMessage(groupId, message),
+            kookMessageSender,
+            muteListManager,
+            silentModeManager
         );
-        this.messageHandler = new MessageHandler(messageSender, playerCountQueryHandler, checkInHandler, pointsQueryHandler, tipSubmissionHandler, tipHandler, helpHandler, catgirlHandler, serverCommandHandler, banListManager);
+        // 初始化绑定功能
+        BindingSessionManager sessionManager = BindingSessionManager.getInstance();
+        DatabaseManager dbManager = new DatabaseManager();
+        this.bindingAPIServer = new BindingAPIServer(sessionManager, dbManager);
+        this.bindingAPIServer.initialize(); // 初始化API服务器（但不启用）
+        this.bindingHandler = new BindingHandler(
+            qqMessageSender,
+            kookMessageSender,
+            sessionManager,
+            bindingAPIServer
+        );
+        // 初始化扫雷游戏处理器
+        String tempImageDir = System.getProperty("user.dir") + File.separator + "temp_images";
+        this.minesweeperHandler = new MinesweeperHandler(
+            (groupId, message) -> messageSender.sendGroupMessage(groupId, message),
+            (groupId, imagePath) -> messageSender.sendGroupImage(groupId, imagePath),
+            tempImageDir
+        );
+        // 初始化黑名单管理处理器
+        this.banHandler = new BanHandler(
+            qqMessageSender,
+            kookMessageSender,
+            banListManager,
+            dbManager
+        );
+        // 初始化SSTV WebSocket服务器
+        this.sstvWebSocketServer = new SSTVWebSocketServer();
+        this.sstvWebSocketServer.start();
+        // 初始化SSTV处理器
+        this.sstvHandler = new SSTVHandler(
+            (groupId, message) -> messageSender.sendGroupMessage(groupId, message),
+            sstvWebSocketServer,
+            tempImageDir
+        );
+        // 初始化静默模式处理器（silentModeManager已在上面初始化）
+        this.silentModeHandler = new SilentModeHandler(
+            (groupId, message) -> messageSender.sendGroupMessage(groupId, message),
+            silentModeManager
+        );
+        this.messageHandler = new MessageHandler(messageSender, playerCountQueryHandler, checkInHandler, pointsQueryHandler, tipSubmissionHandler, tipHandler, helpHandler, catgirlHandler, serverCommandHandler, banListManager, bindingHandler, muteHandler, minesweeperHandler, banHandler, sstvHandler, silentModeManager, silentModeHandler, kookReplyServer);
+        // 初始化KOOK消息转发WebSocket服务器（端口8848）
+        this.kookMessageForwardServer = new KookMessageForwardServer(messageHandler);
+        this.kookMessageForwardServer.start();
         this.webSocketClient = new NapCatWebSocketClient(wsUrl, token, messageHandler);
     }
     
@@ -100,6 +179,24 @@ public class QQBot {
         logger.info("停止QQ机器人...");
         // 停止服务器消息监控
         serverMessageMonitor.stop();
+        // 停止绑定API服务器
+        if (bindingAPIServer != null) {
+            bindingAPIServer.stop();
+        }
+        // 停止SSTV WebSocket服务器
+        if (sstvWebSocketServer != null) {
+            sstvWebSocketServer.stop();
+        }
+        // 停止KOOK消息转发WebSocket服务器
+        if (kookMessageForwardServer != null) {
+            kookMessageForwardServer.stop();
+        }
+        // 停止KOOK回复消息WebSocket服务器
+        if (kookReplyServer != null) {
+            kookReplyServer.stop();
+        }
+        // 关闭绑定会话管理器
+        BindingSessionManager.getInstance().shutdown();
         if (webSocketClient != null) {
             webSocketClient.close();
         }
@@ -125,7 +222,7 @@ public class QQBot {
         }
         
         /**
-         * 发送群消息
+         * 发送群消息（QQ，兼容旧接口）
          */
         public boolean sendGroupMessage(long groupId, String message) {
             try {
@@ -225,13 +322,69 @@ public class QQBot {
                 return false;
             }
         }
+        
+        /**
+         * 发送群图片
+         * @param groupId 群号
+         * @param imagePath 图片路径（支持file://、http://、base64://）
+         * @return 是否发送成功
+         */
+        public boolean sendGroupImage(long groupId, String imagePath) {
+            try {
+                JSONObject requestJson = new JSONObject();
+                requestJson.put("group_id", String.valueOf(groupId));
+                
+                JSONArray messageArray = new JSONArray();
+                JSONObject imageSegment = new JSONObject();
+                imageSegment.put("type", "image");
+                JSONObject imageData = new JSONObject();
+                imageData.put("file", imagePath);
+                imageData.put("summary", "[图片]");
+                imageSegment.put("data", imageData);
+                messageArray.put(imageSegment);
+                
+                requestJson.put("message", messageArray);
+                
+                RequestBody body = RequestBody.create(requestJson.toString(), JSON);
+                Request request = new Request.Builder()
+                        .url(apiUrl + "/send_group_msg")
+                        .method("POST", body)
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("Authorization", "Bearer " + token)
+                        .build();
+                
+                try (Response response = httpClient.newCall(request).execute()) {
+                    if (response.isSuccessful()) {
+                        ResponseBody responseBody = response.body();
+                        if (responseBody != null) {
+                            String responseString = responseBody.string();
+                            logger.info("图片发送成功: {}", responseString);
+                        } else {
+                            logger.info("图片发送成功（无响应体）");
+                        }
+                        return true;
+                    } else {
+                        logger.error("图片发送失败，状态码: {}", response.code());
+                        ResponseBody errorBody = response.body();
+                        if (errorBody != null) {
+                            logger.error("错误响应: {}", errorBody.string());
+                        }
+                        return false;
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("发送群图片时发生异常", e);
+                return false;
+            }
+        }
     }
     
     /**
      * 消息处理器
      */
-    private class MessageHandler {
+    public class MessageHandler {
         private final MessageSender messageSender;
+        private final KookReplyServer kookReplyServer; // KOOK回复服务器
         private final PlayerCountQueryHandler playerCountQueryHandler;
         private final CheckInHandler checkInHandler;
         private final PointsQueryHandler pointsQueryHandler;
@@ -241,10 +394,19 @@ public class QQBot {
         private final CatgirlHandler catgirlHandler;
         private final ServerCommandHandler serverCommandHandler;
         private final BanListManager banListManager;
+        private final BindingHandler bindingHandler;
+        private final MuteHandler muteHandler;
+        private final MinesweeperHandler minesweeperHandler;
+        private final BanHandler banHandler;
+        private final SSTVHandler sstvHandler;
+        private final SilentModeManager silentModeManager;
+        private final SilentModeHandler silentModeHandler;
         private final Set<Long> processedMessageIds = new HashSet<>();
+        private final Set<String> processedKookMessageIds = new HashSet<>(); // KOOK消息ID去重（字符串）
         
-        public MessageHandler(MessageSender messageSender, PlayerCountQueryHandler playerCountQueryHandler, CheckInHandler checkInHandler, PointsQueryHandler pointsQueryHandler, TipSubmissionHandler tipSubmissionHandler, TipHandler tipHandler, HelpHandler helpHandler, CatgirlHandler catgirlHandler, ServerCommandHandler serverCommandHandler, BanListManager banListManager) {
+        public MessageHandler(MessageSender messageSender, PlayerCountQueryHandler playerCountQueryHandler, CheckInHandler checkInHandler, PointsQueryHandler pointsQueryHandler, TipSubmissionHandler tipSubmissionHandler, TipHandler tipHandler, HelpHandler helpHandler, CatgirlHandler catgirlHandler, ServerCommandHandler serverCommandHandler, BanListManager banListManager, BindingHandler bindingHandler, MuteHandler muteHandler, MinesweeperHandler minesweeperHandler, BanHandler banHandler, SSTVHandler sstvHandler, SilentModeManager silentModeManager, SilentModeHandler silentModeHandler, KookReplyServer replyServer) {
             this.messageSender = messageSender;
+            this.kookReplyServer = replyServer;
             this.playerCountQueryHandler = playerCountQueryHandler;
             this.checkInHandler = checkInHandler;
             this.pointsQueryHandler = pointsQueryHandler;
@@ -254,6 +416,13 @@ public class QQBot {
             this.catgirlHandler = catgirlHandler;
             this.serverCommandHandler = serverCommandHandler;
             this.banListManager = banListManager;
+            this.bindingHandler = bindingHandler;
+            this.muteHandler = muteHandler;
+            this.minesweeperHandler = minesweeperHandler;
+            this.banHandler = banHandler;
+            this.sstvHandler = sstvHandler;
+            this.silentModeManager = silentModeManager;
+            this.silentModeHandler = silentModeHandler;
         }
         
         /**
@@ -291,31 +460,62 @@ public class QQBot {
          */
         private void handleGroupMessageEvent(JSONObject event) {
             try {
-                long groupId = event.optLong("group_id", 0);
+                // 识别消息来源
+                String source = event.optString("source", "qq"); // 默认为qq
+                boolean isFromKook = "kook".equalsIgnoreCase(source);
                 
-                long messageId = event.optLong("message_id", 0);
-                if (messageId == 0) {
-                    messageId = event.optLong("message_seq", 0);
+                // 根据来源处理ID（KOOK使用字符串，QQ使用long）
+                String groupIdStr = null;
+                long groupId = 0;
+                if (isFromKook) {
+                    // KOOK消息：使用字符串ID
+                    groupIdStr = event.optString("group_id", "");
+                } else {
+                    // QQ消息：使用long ID
+                    groupId = event.optLong("group_id", 0);
                 }
                 
-                if (messageId > 0 && processedMessageIds.contains(messageId)) {
-                    logger.debug("消息已处理过，跳过: {}", messageId);
-                    return;
+                String messageIdStr = null;
+                long messageId = 0;
+                if (isFromKook) {
+                    messageIdStr = event.optString("message_id", "");
+                    // 使用字符串集合进行去重（KOOK消息ID是UUID，不能转换为long）
+                    if (!messageIdStr.isEmpty() && processedKookMessageIds.contains(messageIdStr)) {
+                        logger.debug("消息已处理过，跳过: {}", messageIdStr);
+                        return;
+                    }
+                } else {
+                    messageId = event.optLong("message_id", 0);
+                    if (messageId == 0) {
+                        messageId = event.optLong("message_seq", 0);
+                    }
+                    if (messageId > 0 && processedMessageIds.contains(messageId)) {
+                        logger.debug("消息已处理过，跳过: {}", messageId);
+                        return;
+                    }
                 }
                 
                 JSONObject sender = event.optJSONObject("sender");
+                String userIdStr = null;
                 long userId = 0;
                 String nickname = "未知";
                 String card = null;
                 
                 if (sender != null) {
-                    userId = sender.optLong("user_id", 0);
+                    if (isFromKook) {
+                        userIdStr = sender.optString("user_id", "");
+                    } else {
+                        userId = sender.optLong("user_id", 0);
+                    }
                     nickname = sender.optString("nickname", "未知");
                     card = sender.optString("card", null);
                 }
                 
-                if (userId == 0) {
+                if (!isFromKook && userId == 0) {
                     userId = event.optLong("user_id", 0);
+                }
+                if (isFromKook && (userIdStr == null || userIdStr.isEmpty())) {
+                    userIdStr = event.optString("user_id", "");
                 }
                 
                 String messageText = extractMessageText(event);
@@ -328,12 +528,96 @@ public class QQBot {
                 String displayName = card != null && !card.isEmpty() ? card : nickname;
                 
                 logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                logger.info("收到群消息");
-                logger.info("群号: {}", groupId);
-                logger.info("发送者: {} ({})", displayName, userId);
-                logger.info("消息ID: {}", messageId > 0 ? messageId : "未知");
+                logger.info("收到群消息 [来源: {}]", isFromKook ? "KOOK" : "QQ");
+                if (isFromKook) {
+                    logger.info("KOOK频道ID: {}", groupIdStr);
+                    logger.info("KOOK用户ID: {}", userIdStr);
+                    logger.info("KOOK消息ID: {}", messageIdStr);
+                } else {
+                    logger.info("QQ群号: {}", groupId);
+                    logger.info("QQ号: {}", userId);
+                    logger.info("QQ消息ID: {}", messageId > 0 ? messageId : "未知");
+                }
+                logger.info("发送者: {} ({})", displayName, isFromKook ? userIdStr : userId);
                 logger.info("消息内容: {}", messageText);
                 logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                
+                // 对于KOOK消息，使用字符串ID作为标识符
+                // 对于QQ消息，使用long ID
+                Object groupIdKey = isFromKook ? groupIdStr : groupId;
+                
+                // 保存消息来源信息，用于后续回复
+                final boolean finalIsFromKook = isFromKook;
+                final String finalGroupIdStr = groupIdStr;
+                final long finalGroupId = groupId;
+                
+                // 优先处理群聊静默命令（无论是否在静默模式中，都要先处理这个命令）
+                // 这样管理员可以在静默模式下使用"群聊静默 关闭"来恢复正常
+                if (silentModeHandler.shouldHandle(messageText)) {
+                    if (isFromKook) {
+                        logger.info("检测到群聊静默命令 [KOOK]，频道: {}, 用户: {}", groupIdStr, userIdStr);
+                        // KOOK消息暂时不支持静默命令，因为需要修改Handler签名
+                        logger.warn("KOOK消息暂不支持静默命令功能");
+                    } else {
+                        logger.info("检测到群聊静默命令 [QQ]，群号: {}, 用户: {}", groupId, userId);
+                        silentModeHandler.handleSilentCommand(groupId, userId, messageText);
+                    }
+                    // 处理完静默命令后，如果是在静默模式下，直接返回，不再处理其他触发词
+                    // 注意：如果管理员执行"群聊静默 关闭"，静默模式会被关闭，但这次消息已经处理完毕
+                    if (isFromKook) {
+                        if (!messageIdStr.isEmpty()) {
+                            processedKookMessageIds.add(messageIdStr);
+                            if (processedKookMessageIds.size() > MAX_PROCESSED_MESSAGE_IDS) {
+                                processedKookMessageIds.clear();
+                                logger.debug("已清理KOOK消息ID缓存");
+                            }
+                        }
+                    } else {
+                        if (messageId > 0) {
+                            processedMessageIds.add(messageId);
+                            if (processedMessageIds.size() > MAX_PROCESSED_MESSAGE_IDS) {
+                                processedMessageIds.clear();
+                                logger.debug("已清理消息ID缓存");
+                            }
+                        }
+                    }
+                    return;
+                }
+                
+                // 检查是否处于静默模式
+                // 如果在静默模式下，跳过所有其他触发词处理（除了上面的静默命令）
+                boolean isSilent = false;
+                if (isFromKook) {
+                    // KOOK消息暂时不支持静默模式检查
+                    isSilent = false;
+                } else {
+                    isSilent = silentModeManager.isSilent(groupId);
+                }
+                if (isSilent) {
+                    logger.debug("群 {} 处于静默模式，跳过所有触发词处理", groupIdKey);
+                    if (isFromKook) {
+                        if (!messageIdStr.isEmpty()) {
+                            processedKookMessageIds.add(messageIdStr);
+                            if (processedKookMessageIds.size() > MAX_PROCESSED_MESSAGE_IDS) {
+                                processedKookMessageIds.clear();
+                                logger.debug("已清理KOOK消息ID缓存");
+                            }
+                        }
+                    } else {
+                        if (messageId > 0) {
+                            processedMessageIds.add(messageId);
+                            if (processedMessageIds.size() > MAX_PROCESSED_MESSAGE_IDS) {
+                                processedMessageIds.clear();
+                                logger.debug("已清理消息ID缓存");
+                            }
+                        }
+                    }
+                    return;
+                }
+                
+                // 注意：KOOK消息和QQ消息都可以处理，但回复方式不同
+                // KOOK消息通过kookReplyServer发送到KOOK频道
+                // QQ消息通过messageSender发送到QQ群
                 
                 // 检查触发词（oi）- 完全匹配
                 String trimmedMessage = messageText.trim();
@@ -341,11 +625,19 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词: {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
                         // 正常用户回复普通消息
-                        logger.info("检测到触发消息: '{}'，准备在群 {} 回复", TRIGGER_MESSAGE, groupId);
-                        messageSender.sendGroupMessage(groupId, REPLY_MESSAGE);
+                        logger.info("检测到触发消息: '{}'，准备在群 {} 回复", TRIGGER_MESSAGE, groupIdKey);
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, REPLY_MESSAGE);
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, REPLY_MESSAGE);
+                        }
                     }
                 }
                 
@@ -354,10 +646,18 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词(人数查询): {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到人数查询请求，群号: {}", groupId);
-                        playerCountQueryHandler.handleQuery(groupId, messageText);
+                        logger.info("检测到人数查询请求，群号: {}", groupIdKey);
+                        if (finalIsFromKook) {
+                            playerCountQueryHandler.handleQueryKook(finalGroupIdStr, messageText);
+                        } else {
+                            playerCountQueryHandler.handleQuery(finalGroupId, messageText);
+                        }
                     }
                 }
                 
@@ -366,10 +666,18 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词(签到): {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到签到请求，群号: {}, QQ号: {}", groupId, userId);
-                        checkInHandler.handleCheckIn(groupId, userId, messageText);
+                        logger.info("检测到签到请求，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            checkInHandler.handleCheckInKook(finalGroupIdStr, userIdStr, messageText);
+                        } else {
+                            checkInHandler.handleCheckIn(finalGroupId, userId, messageText);
+                        }
                     }
                 }
                 
@@ -378,10 +686,18 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词(查询积分): {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到积分查询请求，群号: {}, QQ号: {}", groupId, userId);
-                        pointsQueryHandler.handleQuery(groupId, userId, messageText);
+                        logger.info("检测到积分查询请求，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            pointsQueryHandler.handleQueryKook(finalGroupIdStr, userIdStr, messageText);
+                        } else {
+                            pointsQueryHandler.handleQuery(finalGroupId, userId, messageText);
+                        }
                     }
                 }
                 
@@ -390,10 +706,18 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词(投稿): {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到投稿请求，群号: {}, QQ号: {}", groupId, userId);
-                        tipSubmissionHandler.handleSubmission(groupId, userId, messageText);
+                        logger.info("检测到投稿请求，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            tipSubmissionHandler.handleSubmissionKook(finalGroupIdStr, userIdStr, messageText);
+                        } else {
+                            tipSubmissionHandler.handleSubmission(finalGroupId, userId, messageText);
+                        }
                     }
                 }
                 
@@ -402,10 +726,18 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词(tip): {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到tip请求，群号: {}, QQ号: {}", groupId, userId);
-                        tipHandler.handleTip(groupId, userId, messageText);
+                        logger.info("检测到tip请求，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            tipHandler.handleTipKook(finalGroupIdStr, userIdStr, messageText);
+                        } else {
+                            tipHandler.handleTip(finalGroupId, userId, messageText);
+                        }
                     }
                 }
                 
@@ -414,10 +746,58 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词(帮助): {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到帮助请求，群号: {}, QQ号: {}", groupId, userId);
-                        helpHandler.handleHelp(groupId, userId, messageText);
+                        logger.info("检测到帮助请求，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            helpHandler.handleHelpKook(finalGroupIdStr, userIdStr, messageText);
+                        } else {
+                            helpHandler.handleHelp(finalGroupId, userId, messageText);
+                        }
+                    }
+                }
+                
+                // 处理绑定请求
+                if (bindingHandler.shouldHandle(messageText)) {
+                    // 如果用户在黑名单中，回复禁止消息
+                    if (userId > 0 && banListManager.isBanned(userId)) {
+                        logger.warn("检测到黑名单用户发送触发词(绑定): {} ({}), 发送禁止消息", displayName, userId);
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
+                    } else {
+                        logger.info("检测到绑定请求，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            bindingHandler.handleBindingKook(finalGroupIdStr, userIdStr, messageText);
+                        } else {
+                            bindingHandler.handleBinding(finalGroupId, userId, messageText);
+                        }
+                    }
+                }
+                
+                // 处理 /mute 命令（屏蔽）
+                if (muteHandler.shouldHandle(messageText)) {
+                    // 如果用户在黑名单中，回复禁止消息
+                    if (userId > 0 && banListManager.isBanned(userId)) {
+                        logger.warn("检测到黑名单用户发送触发词(/mute): {} ({}), 发送禁止消息", displayName, userId);
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
+                    } else {
+                        logger.info("检测到屏蔽请求，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            muteHandler.handleMuteKook(finalGroupIdStr, userIdStr, messageText);
+                        } else {
+                            muteHandler.handleMute(finalGroupId, userId, messageText);
+                        }
                     }
                 }
                 
@@ -426,30 +806,129 @@ public class QQBot {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户发送触发词(/c命令): {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到 /c 命令，群号: {}, 用户: {}", groupId, displayName);
-                        serverCommandHandler.handleCommand(groupId, userId, displayName, messageText);
+                        logger.info("检测到 /c 命令，群号: {}, 用户: {}", groupIdKey, displayName);
+                        if (finalIsFromKook) {
+                            serverCommandHandler.handleCommandKook(finalGroupIdStr, userIdStr, displayName, messageText);
+                        } else {
+                            serverCommandHandler.handleCommand(finalGroupId, userId, displayName, messageText);
+                        }
                     }
                 }
                 
                 // 处理@机器人的消息（猫娘AI）
-                if (catgirlHandler.shouldHandleGroupMessage(event)) {
+                boolean shouldHandleCatgirl = false;
+                if (finalIsFromKook) {
+                    shouldHandleCatgirl = catgirlHandler.shouldHandleGroupMessageKook(event);
+                } else {
+                    shouldHandleCatgirl = catgirlHandler.shouldHandleGroupMessage(event);
+                }
+                
+                if (shouldHandleCatgirl) {
                     // 如果用户在黑名单中，回复禁止消息
                     if (userId > 0 && banListManager.isBanned(userId)) {
                         logger.warn("检测到黑名单用户@机器人: {} ({}), 发送禁止消息", displayName, userId);
-                        messageSender.sendGroupMessage(groupId, banListManager.getBanMessage());
+                        if (finalIsFromKook) {
+                            kookReplyServer.sendReply(finalGroupIdStr, banListManager.getBanMessage());
+                        } else {
+                            messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                        }
                     } else {
-                        logger.info("检测到@机器人消息，群号: {}, 用户: {}", groupId, userId);
-                        catgirlHandler.handleGroupMessage(groupId, userId, event);
+                        logger.info("检测到@机器人消息，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                        if (finalIsFromKook) {
+                            catgirlHandler.handleGroupMessageKook(finalGroupIdStr, userIdStr, event);
+                        } else {
+                            catgirlHandler.handleGroupMessage(finalGroupId, userId, event);
+                        }
                     }
                 }
                 
-                if (messageId > 0) {
-                    processedMessageIds.add(messageId);
-                    if (processedMessageIds.size() > MAX_PROCESSED_MESSAGE_IDS) {
-                        processedMessageIds.clear();
-                        logger.debug("已清理消息ID缓存");
+                // 处理扫雷游戏消息（KOOK消息禁止使用游戏功能，避免频繁发送导致封禁）
+                if (minesweeperHandler.shouldHandle(messageText)) {
+                    // KOOK消息禁止使用游戏功能
+                    if (finalIsFromKook) {
+                        logger.warn("KOOK消息禁止使用游戏功能，已跳过: 频道ID={}, 用户={}, 消息={}", finalGroupIdStr, userIdStr, messageText);
+                        // 记录消息ID，避免重复处理
+                        if (!messageIdStr.isEmpty()) {
+                            processedKookMessageIds.add(messageIdStr);
+                        }
+                        return; // 直接返回，不处理游戏功能
+                    }
+                    
+                    // 如果用户在黑名单中，回复禁止消息
+                    if (userId > 0 && banListManager.isBanned(userId)) {
+                        logger.warn("检测到黑名单用户发送游戏消息: {} ({}), 发送禁止消息", displayName, userId);
+                        messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                    } else {
+                        logger.info("检测到游戏消息，群号: {}, 用户: {}", groupIdKey, userId);
+                        minesweeperHandler.handleMessage(finalGroupId, userId, messageText);
+                    }
+                }
+                
+                // 处理黑名单管理命令
+                if (banHandler.shouldHandle(messageText)) {
+                    logger.info("检测到黑名单管理命令，群号: {}, 用户: {}", groupIdKey, isFromKook ? userIdStr : userId);
+                    if (finalIsFromKook) {
+                        // 将KOOK的userId转换为long
+                        long userIdLong = 0;
+                        try {
+                            userIdLong = Long.parseLong(userIdStr);
+                        } catch (NumberFormatException e) {
+                            logger.error("无法将KOOK用户ID转换为long: {}", userIdStr);
+                            kookReplyServer.sendReply(finalGroupIdStr, "命令执行失败：无效的用户ID");
+                            return;
+                        }
+                        banHandler.handleBanCommandKook(finalGroupIdStr, userIdLong, messageText);
+                    } else {
+                        banHandler.handleBanCommand(finalGroupId, userId, messageText);
+                    }
+                }
+                
+                // 注意：群聊静默命令已经在上面优先处理了，这里不再重复处理
+                
+                // 处理SSTV命令（KOOK消息禁止使用SSTV功能，避免频繁发送导致封禁）
+                if (sstvHandler.shouldHandle(messageText, event)) {
+                    // KOOK消息禁止使用SSTV功能
+                    if (finalIsFromKook) {
+                        logger.warn("KOOK消息禁止使用SSTV功能，已跳过: 频道ID={}, 用户={}, 消息={}", finalGroupIdStr, userIdStr, messageText);
+                        // 记录消息ID，避免重复处理
+                        if (!messageIdStr.isEmpty()) {
+                            processedKookMessageIds.add(messageIdStr);
+                        }
+                        return; // 直接返回，不处理SSTV功能
+                    }
+                    
+                    // 如果用户在黑名单中，回复禁止消息
+                    if (userId > 0 && banListManager.isBanned(userId)) {
+                        logger.warn("检测到黑名单用户发送SSTV命令: {} ({}), 发送禁止消息", displayName, userId);
+                        messageSender.sendGroupMessage(finalGroupId, banListManager.getBanMessage());
+                    } else {
+                        logger.info("检测到SSTV命令，群号: {}, 用户: {}", groupIdKey, userId);
+                        sstvHandler.handleSSTV(finalGroupId, userId, messageText, event);
+                    }
+                }
+                
+                // 记录消息ID，避免重复处理
+                    if (isFromKook) {
+                        if (!messageIdStr.isEmpty()) {
+                            processedKookMessageIds.add(messageIdStr);
+                            if (processedKookMessageIds.size() > MAX_PROCESSED_MESSAGE_IDS) {
+                                processedKookMessageIds.clear();
+                                logger.debug("已清理KOOK消息ID缓存");
+                            }
+                        }
+                    } else {
+                    if (messageId > 0) {
+                        processedMessageIds.add(messageId);
+                        if (processedMessageIds.size() > MAX_PROCESSED_MESSAGE_IDS) {
+                            processedMessageIds.clear();
+                            logger.debug("已清理消息ID缓存");
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -602,6 +1081,11 @@ public class QQBot {
         }
         
         private void connectInternal() {
+            // 记录连接信息（不记录完整Token）
+            String tokenDisplay = (token == null || token.isEmpty() || "YOUR_TOKEN_HERE".equals(token)) 
+                ? "未配置" : "已配置(" + token.length() + "字符)";
+            logger.info("正在连接WebSocket: URL={}, Token={}", wsUrl, tokenDisplay);
+            
             Request request = new Request.Builder()
                     .url(wsUrl)
                     .addHeader("Authorization", "Bearer " + token)
@@ -612,6 +1096,22 @@ public class QQBot {
                 public void onOpen(WebSocket webSocket, Response response) {
                     logger.info("WebSocket连接已建立");
                     logger.info("响应状态: {}", response.code());
+                    logger.info("响应头: {}", response.headers());
+                    if (response.body() != null) {
+                        try {
+                            String body = response.body().string();
+                            if (body != null && !body.isEmpty()) {
+                                logger.info("响应体: {}", body);
+                            }
+                        } catch (IOException e) {
+                            logger.debug("无法读取响应体", e);
+                        }
+                    }
+                    // 检查Token是否有效
+                    if (token == null || token.isEmpty() || "YOUR_TOKEN_HERE".equals(token)) {
+                        logger.error("⚠️ WebSocket Token未配置或使用默认值，连接可能被服务器拒绝");
+                        logger.error("⚠️ 请在config.properties中配置正确的napcat.token");
+                    }
                 }
                 
                 @Override
@@ -638,12 +1138,26 @@ public class QQBot {
                 @Override
                 public void onClosing(WebSocket webSocket, int code, String reason) {
                     logger.warn("WebSocket正在关闭: code={}, reason={}", code, reason);
+                    // code=1005 表示"No Status Received"，通常表示服务器端主动关闭连接
+                    if (code == 1005) {
+                        logger.error("⚠️ WebSocket被服务器端关闭（code=1005），可能的原因：");
+                        logger.error("⚠️ 1. Token验证失败 - 请检查config.properties中的napcat.token是否正确");
+                        logger.error("⚠️ 2. NapCat服务未正确启动或配置");
+                        logger.error("⚠️ 3. WebSocket URL不正确 - 当前URL: {}", wsUrl);
+                        if (token == null || token.isEmpty() || "YOUR_TOKEN_HERE".equals(token)) {
+                            logger.error("⚠️ 当前Token: {} (未配置或使用默认值)", 
+                                token == null || token.isEmpty() ? "空" : "YOUR_TOKEN_HERE");
+                        }
+                    }
                     webSocket.close(1000, null);
                 }
                 
                 @Override
                 public void onClosed(WebSocket webSocket, int code, String reason) {
                     logger.warn("WebSocket连接已关闭: code={}, reason={}", code, reason);
+                    if (code == 1005) {
+                        logger.error("⚠️ 连接关闭代码1005通常表示认证失败，请检查Token配置");
+                    }
                     if (shouldReconnect) {
                         scheduleReconnect();
                     }
@@ -653,7 +1167,21 @@ public class QQBot {
                 public void onFailure(WebSocket webSocket, Throwable t, Response response) {
                     logger.error("WebSocket连接失败", t);
                     if (response != null) {
-                        logger.error("响应状态: {}, 响应体: {}", response.code(), response.body());
+                        logger.error("响应状态: {}", response.code());
+                        logger.error("响应头: {}", response.headers());
+                        try {
+                            if (response.body() != null) {
+                                String body = response.body().string();
+                                logger.error("响应体: {}", body);
+                            }
+                        } catch (IOException e) {
+                            logger.error("无法读取响应体", e);
+                        }
+                    }
+                    // 检查Token配置
+                    if (token == null || token.isEmpty() || "YOUR_TOKEN_HERE".equals(token)) {
+                        logger.error("⚠️ 检测到Token未配置，这可能是连接失败的原因");
+                        logger.error("⚠️ 请检查config.properties文件中的napcat.token配置");
                     }
                     if (shouldReconnect) {
                         scheduleReconnect();

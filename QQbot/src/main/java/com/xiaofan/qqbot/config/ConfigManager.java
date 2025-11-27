@@ -1,4 +1,4 @@
-package com.xiaofan.qqbot;
+package com.xiaofan.qqbot.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,8 +10,8 @@ import java.io.InputStream;
 import java.util.Properties;
 
 /**
- * 配置管理器
- * 从配置文件读取敏感信息，如果配置文件不存在则使用默认值（用于GitHub公开版本）
+ * 配置管理�?
+ * 从配置文件读取敏感信息，如果配置文件不存在则使用默认值（用于GitHub公开版本�?
  */
 public class ConfigManager {
     private static final Logger logger = LoggerFactory.getLogger(ConfigManager.class);
@@ -48,7 +48,7 @@ public class ConfigManager {
                     config.load(is);
                     logger.info("已从classpath加载配置文件");
                 } else {
-                    logger.warn("配置文件不存在，将使用默认值（脱敏版本）");
+                    logger.warn("配置文件不存在，将使用默认值（脱敏版本�?)");
                 }
             } catch (IOException e) {
                 logger.warn("读取classpath配置文件失败: {}", e.getMessage());
@@ -57,7 +57,7 @@ public class ConfigManager {
     }
     
     /**
-     * 获取JAR包所在目录
+     * 获取JAR包所在目�?
      */
     private static File getJarDirectory() {
         try {
@@ -69,13 +69,13 @@ public class ConfigManager {
             File jarFile = new File(path);
             return jarFile.getParentFile();
         } catch (Exception e) {
-            // 如果无法获取JAR目录，返回当前工作目录
+            // 如果无法获取JAR目录，返回当前工作目�?
             return new File(System.getProperty("user.dir"));
         }
     }
     
     /**
-     * 获取配置值，如果不存在则返回默认值
+     * 获取配置值，如果不存在则返回默认�?
      */
     private static String getProperty(String key, String defaultValue) {
         String value = config.getProperty(key);
@@ -98,7 +98,7 @@ public class ConfigManager {
         return getProperty("napcat.token", "YOUR_TOKEN_HERE");
     }
     
-    // ========== 数据库配置 ==========
+    // ========== 数据库配�?==========
     public static String getDbUrl() {
         return getProperty("db.url", "jdbc:mysql://localhost:3306/qddata?useSSL=false&serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&allowPublicKeyRetrieval=true");
     }
@@ -117,7 +117,7 @@ public class ConfigManager {
     }
     
     public static String getCloudflareApiKey() {
-        // 优先从环境变量读取，其次从配置文件读取
+        // 优先从环境变量读取，其次从配置文件读�?
         String envKey = System.getenv("AI_API_KEY");
         if (envKey != null && !envKey.trim().isEmpty()) {
             return envKey.trim();
@@ -135,23 +135,23 @@ public class ConfigManager {
     }
     
     /**
-     * 检查关键配置是否已设置（用于启动时验证）
+     * 检查关键配置是否已设置（用于启动时验证�?
      */
     public static boolean validateConfig() {
         boolean valid = true;
         
         if ("YOUR_TOKEN_HERE".equals(getNapCatToken())) {
-            logger.warn("⚠️ NapCat Token未配置，请设置 config.properties 中的 napcat.token");
+            logger.warn("⚠️ NapCat Token未配置，请设�?config.properties 中的 napcat.token");
             valid = false;
         }
         
         if ("YOUR_ACCOUNT_ID_HERE".equals(getCloudflareAccountId())) {
-            logger.warn("⚠️ Cloudflare Account ID未配置，请设置 config.properties 中的 cloudflare.account.id");
+            logger.warn("⚠️ Cloudflare Account ID未配置，请设�?config.properties 中的 cloudflare.account.id");
             // Account ID不是必须的，如果AI功能不使用可以不配置
         }
         
         if (getCloudflareApiKey().isEmpty()) {
-            logger.warn("⚠️ Cloudflare API Key未配置（环境变量AI_API_KEY或config.properties中的cloudflare.api.key）");
+            logger.warn("⚠️ Cloudflare API Key未配置（环境变量AI_API_KEY或config.properties中的cloudflare.api.key�?)");
             // API Key不是必须的，如果AI功能不使用可以不配置
         }
         

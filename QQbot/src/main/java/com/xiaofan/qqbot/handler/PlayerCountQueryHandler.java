@@ -1,5 +1,7 @@
-package com.xiaofan.qqbot;
+package com.xiaofan.qqbot.handler;
 
+import com.xiaofan.qqbot.send.KookMessageSender;
+import com.xiaofan.qqbot.send.QQMessageSender;
 import okhttp3.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -7,11 +9,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
 
 /**
  * 人数查询处理器
- * 检测"人数查询"关键词，向Minecraft客户端API查询在线玩家信息并发送到QQ群
+ * 检测"人数查询"关键词，向Minecraft客户端API查询在线玩家信息并发送到QQ群或KOOK频道
  */
 public class PlayerCountQueryHandler {
     private static final Logger logger = LoggerFactory.getLogger(PlayerCountQueryHandler.class);
@@ -21,14 +22,17 @@ public class PlayerCountQueryHandler {
     private static final String TRIGGER_KEYWORD = "人数查询";
     
     private final OkHttpClient httpClient;
-    private final BiFunction<Long, String, Boolean> messageSender;
+    private final QQMessageSender qqMessageSender;
+    private final KookMessageSender kookMessageSender;
     
     /**
      * 构造函数
-     * @param messageSender 消息发送函数，接收群号和消息内容，返回是否发送成功
+     * @param qqMessageSender QQ消息发送器
+     * @param kookMessageSender KOOK消息发送器
      */
-    public PlayerCountQueryHandler(BiFunction<Long, String, Boolean> messageSender) {
-        this.messageSender = messageSender;
+    public PlayerCountQueryHandler(QQMessageSender qqMessageSender, KookMessageSender kookMessageSender) {
+        this.qqMessageSender = qqMessageSender;
+        this.kookMessageSender = kookMessageSender;
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
@@ -46,7 +50,7 @@ public class PlayerCountQueryHandler {
     }
     
     /**
-     * 处理人数查询请求
+     * 处理人数查询请求（QQ消息）
      */
     public void handleQuery(long groupId, String messageText) {
         if (!shouldHandle(messageText)) {
@@ -60,7 +64,7 @@ public class PlayerCountQueryHandler {
             PlayerCountInfo playerInfo = queryPlayerCount();
             
             if (playerInfo == null) {
-                messageSender.apply(groupId, "查询失败：无法连接到Minecraft客户端API");
+                qqMessageSender.sendGroupMessage(groupId, "查询失败：无法连接到Minecraft客户端API");
                 return;
             }
             
@@ -68,17 +72,54 @@ public class PlayerCountQueryHandler {
             String formattedMessage = formatPlayerCountMessage(playerInfo);
             
             // 发送到QQ群
-            boolean success = messageSender.apply(groupId, formattedMessage);
+            boolean success = qqMessageSender.sendGroupMessage(groupId, formattedMessage);
             
             if (success) {
-                logger.info("人数查询消息已成功发送到群: {}", groupId);
+                logger.info("人数查询消息已成功发送到QQ群: {}", groupId);
             } else {
                 logger.error("人数查询消息发送失败，群号: {}", groupId);
             }
             
         } catch (Exception e) {
             logger.error("处理人数查询时发生错误", e);
-            messageSender.apply(groupId, "查询失败：" + e.getMessage());
+            qqMessageSender.sendGroupMessage(groupId, "查询失败：" + e.getMessage());
+        }
+    }
+    
+    /**
+     * 处理人数查询请求（KOOK消息）
+     */
+    public void handleQueryKook(String channelId, String messageText) {
+        if (!shouldHandle(messageText)) {
+            return;
+        }
+        
+        logger.info("检测到人数查询请求（KOOK），频道: {}", channelId);
+        
+        try {
+            // 查询Minecraft服务器在线玩家信息
+            PlayerCountInfo playerInfo = queryPlayerCount();
+            
+            if (playerInfo == null) {
+                kookMessageSender.sendChannelMessage(channelId, "查询失败：无法连接到Minecraft客户端API");
+                return;
+            }
+            
+            // 格式化消息
+            String formattedMessage = formatPlayerCountMessage(playerInfo);
+            
+            // 发送到KOOK频道
+            boolean success = kookMessageSender.sendChannelMessage(channelId, formattedMessage);
+            
+            if (success) {
+                logger.info("人数查询消息已成功发送到KOOK频道: {}", channelId);
+            } else {
+                logger.error("人数查询消息发送失败，频道: {}", channelId);
+            }
+            
+        } catch (Exception e) {
+            logger.error("处理人数查询时发生错误", e);
+            kookMessageSender.sendChannelMessage(channelId, "查询失败：" + e.getMessage());
         }
     }
     
@@ -218,4 +259,3 @@ public class PlayerCountQueryHandler {
         }
     }
 }
-

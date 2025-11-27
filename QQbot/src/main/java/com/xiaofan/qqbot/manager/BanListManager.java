@@ -1,4 +1,4 @@
-package com.xiaofan.qqbot;
+package com.xiaofan.qqbot.manager;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,10 +103,10 @@ public class BanListManager {
                             bannedUserIds.add(qqId);
                             logger.debug("[黑名单] 加载黑名单QQ号: {}", qqId);
                         } else {
-                            logger.warn("[黑名单] 第{}行: 无效的QQ号 (必须大于0): {}", lineNumber, line);
+                            logger.warn("[黑名单] 第{}行 无效的QQ号(必须大于0): {}", lineNumber, line);
                         }
                     } catch (NumberFormatException e) {
-                        logger.warn("[黑名单] 第{}行: 无法解析QQ号: {}", lineNumber, line);
+                        logger.warn("[黑名单] 第{}行 无法解析QQ号: {}", lineNumber, line);
                     }
                 }
             }
@@ -145,6 +145,71 @@ public class BanListManager {
     }
     
     /**
+     * 获取所有黑名单QQ号
+     * @return 黑名单QQ号集合的副本
+     */
+    public Set<Long> getAllBannedUsers() {
+        if (!initialized) {
+            initialize();
+        }
+        return new HashSet<>(bannedUserIds);
+    }
+    
+    /**
+     * 添加用户到黑名单（在线拉黑）
+     * @param userId 要拉黑的QQ号
+     * @return 如果成功添加返回true，如果已在黑名单中返回false
+     */
+    public boolean addBan(long userId) {
+        if (!initialized) {
+            initialize();
+        }
+        
+        if (userId <= 0) {
+            logger.warn("[黑名单] 无效的QQ号: {}", userId);
+            return false;
+        }
+        
+        if (bannedUserIds.contains(userId)) {
+            logger.info("[黑名单] QQ号 {} 已在黑名单中", userId);
+            return false;
+        }
+        
+        bannedUserIds.add(userId);
+        logger.info("[黑名单] 添加黑名单QQ号: {}", userId);
+        
+        // 持久化到文件
+        saveBanList();
+        
+        return true;
+    }
+    
+    /**
+     * 保存黑名单到文件
+     */
+    private void saveBanList() {
+        try {
+            // 确保目录存在
+            Path parentDir = banFilePath.getParent();
+            if (parentDir != null && !Files.exists(parentDir)) {
+                Files.createDirectories(parentDir);
+            }
+            
+            // 写入文件
+            try (BufferedWriter writer = Files.newBufferedWriter(banFilePath)) {
+                for (Long qqId : bannedUserIds) {
+                    writer.write(String.valueOf(qqId));
+                    writer.newLine();
+                }
+            }
+            
+            logger.info("[黑名单] 黑名单已保存到文件: {}", banFilePath);
+        } catch (IOException e) {
+            logger.error("[黑名单] 保存黑名单到文件失败: {}", banFilePath, e);
+        }
+    }
+    
+    /**
      * 获取黑名单文件路径
      */
     public Path getBanFilePath() {
@@ -178,5 +243,3 @@ public class BanListManager {
         }
     }
 }
-
-
