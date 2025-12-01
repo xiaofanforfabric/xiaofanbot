@@ -145,12 +145,7 @@ autosave/
 
 完整的宏语言语法和使用说明请查看：[**FanMacrodoc.md**](autosaveforForge/FanMacrodoc.md)
 
-##### 🎬 示例视频
-
-<video width="100%" controls>
-  <source src="https://web.xiaofansmp.cc/video/VID_20251201_021329.mp4" type="video/mp4">
-  您的浏览器不支持视频标签。
-</video>
+##### 🎬 示例视频https://web.xiaofansmp.cc/video/VID_20251201_021329.mp4
 
 ##### 💡 示例代码
 
