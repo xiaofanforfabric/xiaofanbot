@@ -7,10 +7,11 @@
 
 ## 📋 项目概述
 
-本项目包含两个主要模块：
+本项目包含三个主要模块：
 
 1. **QQbot模块** - 基于NapCat的QQ机器人，提供多种群聊和私聊功能
 2. **Fabric客户端模组** - Minecraft 1.21.5客户端模组，提供服务器信息API和消息监听
+3. **autosaveforForge模块** - Minecraft 1.20.1 Forge客户端模组，提供**革命性的自动化宏代码执行系统** 🚀
 
 ## 🏗️ 项目结构
 
@@ -41,6 +42,19 @@ autosave/
 │   │   ├── ClientControlServer.java # 客户端控制（端口8083）
 │   │   └── ...                       # 其他客户端功能
 │   └── main/
+│
+├── autosaveforForge/         # Forge客户端模组（V3.0新增）
+│   ├── src/main/java/com/xiaofan/autosaveforforge/
+│   │   ├── MacroExecutor.java       # 宏执行器（核心）
+│   │   ├── MacroParser.java         # 宏解析器（核心）
+│   │   ├── BaritoneTaskManager.java # 任务管理器（核心）
+│   │   ├── MacroWebServer.java      # 宏管理Web服务器（端口8079）
+│   │   ├── StatusHttpServer.java    # 状态服务器（端口8083）
+│   │   ├── ChatMonitorServer.java   # 聊天监控（端口8081）
+│   │   ├── ServerInfoAPI.java       # 服务器信息API（端口2000）
+│   │   ├── DoCommandHandler.java    # /do命令处理器
+│   │   └── ...                       # 其他功能模块
+│   └── FanMacrodoc.md               # 宏语言完整文档
 │
 └── SimpfunPassAPI/           # API服务模块
 ```
@@ -110,14 +124,121 @@ autosave/
 #### 客户端控制（端口8083）
 - Web界面控制客户端功能
 
+### 🎯 autosaveforForge模块功能（V3.0 革命性更新！）
+
+#### ⭐ 自动化宏代码执行系统（核心功能）
+
+**这是本项目的革命性创新！** 通过自定义宏语言，你可以编写简单的文本文件来自动执行复杂的游戏任务，无需编程知识！
+
+##### 🌟 核心特性
+
+- **📝 自定义宏语言**：简单易学的文本语法，像写脚本一样编写自动化任务
+- **🔄 条件执行**：支持位置检查、时间检查、物品检查等智能条件判断
+- **⚙️ 函数系统**：支持函数定义和调用，代码复用更简单
+- **🎮 Baritone集成**：无缝集成Baritone路径查找，自动挖矿、探索、移动
+- **🌐 Web管理界面**：通过浏览器管理宏，启动/停止/查看状态
+- **📁 文件监听**：修改宏文件后自动重载，无需重启游戏
+- **🛡️ 冲突检测**：智能检测命令冲突，自动停止冲突的宏
+- **⏰ 时间控制**：支持基于游戏时间的定时任务
+
+##### 📚 宏语言文档
+
+完整的宏语言语法和使用说明请查看：[**FanMacrodoc.md**](autosaveforForge/FanMacrodoc.md)
+
+##### 🎬 示例视频https://web.xiaofansmp.cc/video/VID_20251201_021329.mp4
+
+##### 💡 示例代码
+
+以下是在演示视频中使用的三个宏文件：
+
+**1. 回家宏** (`回家.txt`)
+```fanmacro
+fan_main:
+    do fun "sleep"
+
+fun name="sleep";
+    if time >= 11000
+        do #stop;
+        do #goto -23 77 -3073
+        do #set allowBreak false;
+        do #set allowPlace false;
+        do #goto 0 85 -3062;
+        do /home;
+        do #set allowBreak true;
+        do #set allowPlace true;
+        do end;
+    else
+        do wait 1m;
+        do fun "sleep";
+```
+
+**2. 挖矿宏** (`挖矿.txt`)
+```fanmacro
+fan_main:
+    do fun "goto"
+
+fun name="goto";
+    if me at = (0,85,-3062)
+        do #set allowBreak false;
+        do #set allowPlace false;
+        do #goto 19 78 -3016;
+        do #set allowBreak true;
+        do #set allowPlace true;
+        check me nothave (item = coal), do #mine minecraft:coal_ore;
+        check me nothave (item = raw_iron), do #mine minecraft:iron_ore;
+        check me nothave (item = diamond), do #mine minecraft:diamond_ore minecraft:deepslate_diamond_ore;
+        do wait 5m;
+        do #stop;
+        run name = "立即回家"
+        do end;
+    else
+        do #stop;
+        do /home;
+        do fun "goto";
+```
+
+**3. 立即回家宏** (`立即回家.txt`)
+```fanmacro
+fan_main:
+    do #stop;
+    do #goto -23 77 -3073
+    do #set allowBreak false;
+    do #set allowPlace false;
+    do #goto 0 85 -3062;
+    do /home;
+    do #set allowBreak true;
+    do #set allowPlace true;
+    do end;
+```
+
+##### 🚀 快速开始
+
+1. **安装模组**：将模组放入 `.minecraft/mods/` 目录
+2. **创建宏文件**：在 `.minecraft/config/do/` 目录创建 `.txt` 文件
+3. **编写宏代码**：使用宏语言编写自动化任务
+4. **启动宏**：
+   - 游戏内：使用 `/do <宏名>` 命令
+   - Web界面：访问 `http://localhost:8079`
+
+#### 其他功能
+
+- **状态监控服务器**（端口8083）：查看游戏状态，控制服务器连接
+- **聊天监控服务器**（端口8081）：实时监控游戏聊天消息
+- **服务器信息API**（端口2000）：提供服务器信息查询接口
+- **自动睡眠控制**：智能控制游戏内睡眠
+- **死亡处理**：玩家死亡时自动停止所有任务
+- **性能优化**：禁用窗口失去焦点时暂停，保持后台运行
+
 ## 🚀 快速开始
 
 ### 环境要求
 
-- Java 21+
-- MySQL 8.0+
-- NapCat QQ机器人框架
-- Minecraft 1.21.5 + Fabric Loader 0.17.3
+- Java 17+ (Forge模组) / Java 21+ (Fabric模组和QQbot)
+- MySQL 8.0+ (仅QQbot需要)
+- NapCat QQ机器人框架 (仅QQbot需要)
+- Minecraft 1.20.1 + Forge 47.4.12 (autosaveforForge模组)
+- Minecraft 1.21.5 + Fabric Loader 0.17.3 (Fabric模组)
+- Baritone Mod (autosaveforForge模组需要)
 
 ### 配置步骤
 
@@ -225,6 +346,14 @@ java -jar build/libs/qqbot-1.0-SNAPSHOT.jar
 ./gradlew build
 ```
 
+**编译Forge模组：**
+```bash
+cd autosaveforForge
+./gradlew build
+```
+
+编译后的模组文件位于：`autosaveforForge/build/libs/autosaveforforge-1.0-SNAPSHOT.jar`
+
 ## 📖 使用说明
 
 ### QQ机器人命令列表
@@ -249,11 +378,13 @@ java -jar build/libs/qqbot-1.0-SNAPSHOT.jar
 
 | 端口 | 模块 | 功能 |
 |------|------|------|
-| 2000 | Fabric客户端 | 服务器信息API |
+| 2000 | Fabric客户端 / Forge客户端 | 服务器信息API |
 | 2001 | QQbot模块 | 绑定验证码API |
 | 3000 | NapCat | HTTP API |
 | 3001 | NapCat | WebSocket |
-| 8083 | Fabric客户端 | 客户端控制 |
+| 8079 | Forge客户端 | 宏管理Web界面 |
+| 8081 | Forge客户端 | 聊天监控Web界面 |
+| 8083 | Fabric客户端 / Forge客户端 | 客户端控制 / 状态监控 |
 
 ## 🔧 配置说明
 
@@ -323,6 +454,21 @@ QQ号2;
 - `mes.java` - 服务器消息API（端口2000）
 - `ClientControlServer.java` - 客户端控制（端口8083）
 
+### autosaveforForge模块核心文件
+
+- `MacroExecutor.java` - 宏执行器（核心，执行宏命令）
+- `MacroParser.java` - 宏解析器（核心，解析宏文件）
+- `BaritoneTaskManager.java` - 任务管理器（核心，管理宏生命周期）
+- `MacroWebServer.java` - 宏管理Web服务器（端口8079）
+- `StatusHttpServer.java` - 状态监控服务器（端口8083）
+- `ChatMonitorServer.java` - 聊天监控服务器（端口8081）
+- `ServerInfoAPI.java` - 服务器信息API（端口2000）
+- `DoCommandHandler.java` - `/do`命令处理器
+- `DeathHandler.java` - 死亡处理（自动停止任务）
+- `AutoSleepController.java` - 自动睡眠控制
+- `WorldTimeHUD.java` - 世界时间显示
+- `PerformanceController.java` - 性能优化控制
+
 ## 🔒 安全注意事项
 
 1. **配置文件管理**：
@@ -341,6 +487,21 @@ QQ号2;
 - 远程main分支无法删除（GitHub默认分支保护）
 
 ## 📝 更新日志
+
+### V3.0版本（最新）🚀
+- **⭐ 革命性功能：自动化宏代码执行系统**
+  - 自定义宏语言，支持函数、条件语句、循环
+  - 无缝集成Baritone路径查找
+  - Web管理界面（端口8079）
+  - 文件监听自动重载
+  - 智能命令冲突检测
+  - 基于游戏时间的定时任务
+- 状态监控服务器（端口8083）
+- 聊天监控服务器（端口8081）
+- 服务器信息API（端口2000）
+- 自动睡眠控制
+- 死亡自动停止任务
+- 性能优化（禁用窗口失去焦点暂停）
 
 ### V1版本
 - 基础触发词功能
